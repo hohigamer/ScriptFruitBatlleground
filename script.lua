@@ -16,10 +16,11 @@ local jumpLoopConnection = nil
 local espEnabled = false
 local billboards = {}
 local highlights = {}
+local fruitCache = {} -- Cache pour les fruits détectés
 local selectedPlayer = nil
 local tpLoopEnabled = false
 local tpLoopConnection = nil
-local espUpdateConnection = nil -- Nouvelle variable pour stocker la connexion
+local espUpdateConnection = nil
 local selectedSafeZone = nil
 local marcoTpEnabled = false
 local marcoTpConnection = nil
@@ -79,7 +80,7 @@ for _, targetPlayer in pairs(Players:GetPlayers()) do
     end
 end
 
--- Tableau des fruits et leurs attaques dans Fruit Battlegrounds (nettoyé et mis à jour)
+-- Tableau des fruits et leurs attaques dans Fruit Battlegrounds (non modifié, comme demandé)
 local fruitAttacks = {
     -- Communs
     {Fruit = "Chop", Attacks = {"Festival Slash", "Spinning Dash", "Air Slash", "Emergency Escape", "Big Top Slam"}},
@@ -95,7 +96,7 @@ local fruitAttacks = {
     {Fruit = "Love", Attacks = {"Cupid's Arrow", "Heartthrob", "Love Beam", "Sweet Kiss", "Heartstrings"}},
     -- Épiques
     {Fruit = "Light", Attacks = {"Jewels Of Light", "Mirror Kick", "Light Kick", "Blinding Combo", "Light Explosion"}},
-    {Fruit = "Snow", Attacks = {"Snow Angel", "Winter Storm", "Frost Dome", "Snowball Catastrophe", "Frost Dash"}}, -- Ajout de Snow
+    {Fruit = "Snow", Attacks = {"Snow Angel", "Winter Storm", "Frost Dome", "Snowball Catastrophe", "Frost Dash"}},
     {Fruit = "Magma", Attacks = {"Magma Fist", "Magma Rain", "Volcanic Eruption", "Magma Wave", "Meteor Shower"}},
     {Fruit = "String", Attacks = {"String Pull", "Overheat Whip", "Parasite", "Fullbright", "String Cage"}},
     -- Légendaires
@@ -103,7 +104,7 @@ local fruitAttacks = {
     {Fruit = "Light V2", Attacks = {"Light Spear", "Radiant Burst", "Light Speed Dash", "Holy Light", "Light Nova"}},
     {Fruit = "Magma V2", Attacks = {"Magma Storm", "Crimson Howl", "Lava Burst", "Magma Shower", "Volcanic Smash"}},
     {Fruit = "Venom", Attacks = {"Venom Hydra", "Poison Cloud", "Toxic Slam", "Venom Spread", "Deadly Mist"}},
-    {Fruit = "Magnet", Attacks = {"Cyclone", "Punk Prison", "Repel", "Punk Cannon", "Metal Arms"}}, -- Ajout de Magnet
+    {Fruit = "Magnet", Attacks = {"Cyclone", "Punk Prison", "Repel", "Punk Cannon", "Metal Arms"}},
     {Fruit = "Phoenix", Attacks = {"Flame Talon", "Phoenix Dive", "Healing Flames", "Blue Flames", "Phoenix Burst"}},
     -- Mythiques
     {Fruit = "Gravity", Attacks = {"Gravity Push", "Meteor Strike", "Black Hole", "Gravity Crush", "Planetary Devastation"}},
@@ -117,7 +118,7 @@ local fruitAttacks = {
     {Fruit = "Nika", Attacks = {"Gear Fifth Punch", "Rubber Dawn", "Laughing Storm", "Freedom Strike", "Nika Barrage"}},
     {Fruit = "Soul", Attacks = {"Soul Steal", "Spirit Barrage", "Soul Chain", "Ethereal Wave", "Soul Reaper"}},
     {Fruit = "DarkXQuake", Attacks = {"Dark Quake", "Black Eruption", "Shadow Slam", "Vortex Shock", "Abyssal Tsunami"}},
-    {Fruit = "TSRubber", Attacks = {"Jet Pistol", "Time Stop", "Kong Gun", "Gear Second", "Red Hawk", "Gatling"}}, -- Ajout de TSRubber
+    {Fruit = "TSRubber", Attacks = {"Jet Pistol", "Time Stop", "Kong Gun", "Gear Second", "Red Hawk", "Gatling"}},
     {Fruit = "Nika", Attacks = {"Gear Fifth Punch", "Rubber Dawn", "Laughing Storm", "Freedom Strike", "Nika Barrage"}},
     {Fruit = "DarkXQuake", Attacks = {"Anti Body", "Anti Quake", "Black Hole Path", "Black Turret", "Abyssal Tsunami"}},
     {Fruit = "DoughV2", Attacks = {"Scorching Buzzcut", "Elastic Lasso", "Rolling Dough", "Piercing Mochi", "Dough Explosion"}},
@@ -126,23 +127,18 @@ local fruitAttacks = {
     {Fruit = "Light V2", Attacks = {"X-Flash", "Solar Grenade", "Light Speed Dash", "Holy Light", "Light Nova"}},
 }
 
-
-
 -- Fonction pour mesurer la similarité entre deux chaînes
 local function areStringsSimilar(str1, str2)
-    -- Convertir les chaînes en minuscules et supprimer les espaces
     str1 = str1:lower():gsub("%s+", "")
     str2 = str2:lower():gsub("%s+", "")
     
-    -- Vérifier si une chaîne est contenue dans l'autre
     if str1:find(str2) or str2:find(str1) then
         return true
     end
     
-    -- Calculer une distance de Levenshtein simplifiée
     local len1, len2 = #str1, #str2
     if math.abs(len1 - len2) > 3 then
-        return false -- Trop de différence de longueur
+        return false
     end
     
     local distance = 0
@@ -153,7 +149,6 @@ local function areStringsSimilar(str1, str2)
     end
     distance = distance + math.abs(len1 - len2)
     
-    -- Considérer comme similaire si la distance est faible (moins de 3 différences)
     return distance <= 3
 end
 
@@ -164,7 +159,6 @@ local function detectFruit(targetPlayer)
         return "Inconnu", {"Erreur : Backpack non trouvé"}
     end
 
-    -- Récupérer tous les outils dans le Backpack
     local tools = {}
     for _, item in pairs(backpack:GetChildren()) do
         if item:IsA("Tool") then
@@ -176,7 +170,6 @@ local function detectFruit(targetPlayer)
         return "Inconnu", {"Erreur : Aucun outil trouvé"}
     end
 
-    -- Comparer les noms des outils avec les attaques des fruits en utilisant la similarité
     local bestFruit = nil
     local bestMatches = 0
     local bestMatchedAttacks = {}
@@ -207,6 +200,38 @@ local function detectFruit(targetPlayer)
     end
 end
 
+-- Fonction pour surveiller les changements dans le Backpack d'un joueur
+local function monitorBackpack(targetPlayer)
+    local backpack = targetPlayer:FindFirstChild("Backpack")
+    if backpack then
+        local fruit, matchedAttacks = detectFruit(targetPlayer)
+        fruitCache[targetPlayer] = {fruit = fruit, attacks = matchedAttacks}
+
+        backpack.ChildAdded:Connect(function()
+            local newFruit, newMatchedAttacks = detectFruit(targetPlayer)
+            fruitCache[targetPlayer] = {fruit = newFruit, attacks = newMatchedAttacks}
+        end)
+        backpack.ChildRemoved:Connect(function()
+            local newFruit, newMatchedAttacks = detectFruit(targetPlayer)
+            fruitCache[targetPlayer] = {fruit = newFruit, attacks = newMatchedAttacks}
+        end)
+    end
+end
+
+-- Initialiser le cache pour les joueurs existants
+for _, targetPlayer in pairs(Players:GetPlayers()) do
+    if targetPlayer ~= player then
+        monitorBackpack(targetPlayer)
+    end
+end
+
+-- Surveiller les nouveaux joueurs
+Players.PlayerAdded:Connect(function(targetPlayer)
+    if targetPlayer ~= player then
+        monitorBackpack(targetPlayer)
+    end
+end)
+
 -- Gestion de la mort du joueur
 humanoid.Died:Connect(function()
     if speedLoopConnection then
@@ -228,11 +253,9 @@ end)
 player.CharacterAdded:Connect(function(newCharacter)
     character = newCharacter
     humanoid = character:WaitForChild("Humanoid")
-    -- Restaurer les paramètres de vitesse et de saut si activés
     if speedEnabled then
         humanoid.WalkSpeed = customSpeedValue
         print("Vitesse restaurée à : " .. customSpeedValue)
-        -- Relancer la boucle
         if speedLoopConnection then
             speedLoopConnection:Disconnect()
         end
@@ -250,7 +273,6 @@ player.CharacterAdded:Connect(function(newCharacter)
         humanoid.JumpPower = jumpValue
         humanoid.UseJumpPower = true
         print("Puissance de saut restaurée à : " .. jumpValue)
-        -- Relancer la boucle
         if jumpLoopConnection then
             jumpLoopConnection:Disconnect()
         end
@@ -261,7 +283,6 @@ player.CharacterAdded:Connect(function(newCharacter)
             end
         end)
     end
-    -- Relancer la boucle de téléportation si activée
     if tpLoopEnabled and selectedPlayer then
         if tpLoopConnection then
             tpLoopConnection:Disconnect()
@@ -279,36 +300,27 @@ local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "CustomGui"
 ScreenGui.ResetOnSpawn = false
 
--- Vérifier si un GUI avec le même nom existe déjà
 local existingGui = player:WaitForChild("PlayerGui"):FindFirstChild("CustomGui")
 if existingGui then
-    -- Désactiver l'ESP
     espEnabled = false
-    if billboards then
-        for _, billboard in pairs(billboards) do
-            billboard:Destroy()
-        end
-        billboards = {}
+    for _, billboard in pairs(billboards) do
+        billboard:Destroy()
     end
-    if highlights then
-        for _, highlight in pairs(highlights) do
-            highlight:Destroy()
-        end
-        highlights = {}
+    for _, highlight in pairs(highlights) do
+        highlight:Destroy()
     end
+    billboards = {}
+    highlights = {}
     if espUpdateConnection then
         espUpdateConnection:Disconnect()
         espUpdateConnection = nil
     end
-    -- Désactiver le Saut Infini
     infJumpEnabled = false
-    -- Désactiver la téléportation en boucle (si elle existe)
     tpLoopEnabled = false
     if tpLoopConnection then
         tpLoopConnection:Disconnect()
         tpLoopConnection = nil
     end
-    -- Désactiver les boucles de vitesse et de saut (si elles existent)
     if speedLoopConnection then
         speedLoopConnection:Disconnect()
         speedLoopConnection = nil
@@ -317,14 +329,12 @@ if existingGui then
         jumpLoopConnection:Disconnect()
         jumpLoopConnection = nil
     end
-    -- Réinitialiser les paramètres du joueur (vitesse, saut)
     if character and character:FindFirstChild("Humanoid") then
         local humanoid = character:FindFirstChild("Humanoid")
         humanoid.WalkSpeed = defaultWalkSpeed
         humanoid.JumpPower = defaultJumpPower
         humanoid.UseJumpPower = true
     end
-    -- Supprimer l'ancien GUI
     existingGui:Destroy()
 end
 
@@ -358,13 +368,12 @@ TitleLabelCorner.CornerRadius = UDim.new(0, 10)
 TitleLabelCorner.Parent = TitleLabel
 TitleLabelCorner.Name = "TitleLabelCorner"
 
--- Bouton de fermeture (croix rouge)
 local closeButton = Instance.new("TextButton")
 closeButton.Size = UDim2.new(0, 30, 0, 30)
 closeButton.Position = UDim2.new(0, 10, 0, 10)
-closeButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- Rouge
+closeButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
 closeButton.Text = "X"
-closeButton.TextColor3 = Color3.fromRGB(255, 255, 255) -- Texte blanc
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeButton.Font = Enum.Font.GothamBold
 closeButton.TextSize = 16
 closeButton.BorderSizePixel = 0
@@ -375,35 +384,26 @@ closeButtonCorner.CornerRadius = UDim.new(0, 5)
 closeButtonCorner.Parent = closeButton
 closeButtonCorner.Name = "CloseButtonCorner"
 
--- Fonction pour fermer le GUI et désactiver les fonctionnalités
 closeButton.MouseButton1Click:Connect(function()
-    -- Désactiver l'ESP
     espEnabled = false
-    if billboards then
-        for _, billboard in pairs(billboards) do
-            billboard:Destroy()
-        end
-        billboards = {}
+    for _, billboard in pairs(billboards) do
+        billboard:Destroy()
     end
-    if highlights then
-        for _, highlight in pairs(highlights) do
-            highlight:Destroy()
-        end
-        highlights = {}
+    for _, highlight in pairs(highlights) do
+        highlight:Destroy()
     end
+    billboards = {}
+    highlights = {}
     if espUpdateConnection then
         espUpdateConnection:Disconnect()
         espUpdateConnection = nil
     end
-    -- Désactiver le Saut Infini
     infJumpEnabled = false
-    -- Désactiver la téléportation en boucle
     tpLoopEnabled = false
     if tpLoopConnection then
         tpLoopConnection:Disconnect()
         tpLoopConnection = nil
     end
-    -- Désactiver les boucles de vitesse et de saut
     if speedLoopConnection then
         speedLoopConnection:Disconnect()
         speedLoopConnection = nil
@@ -412,34 +412,30 @@ closeButton.MouseButton1Click:Connect(function()
         jumpLoopConnection:Disconnect()
         jumpLoopConnection = nil
     end
-        -- Désactiver label time
     if serverTimeDisplayLabel then
         serverTimeDisplayLabel:Destroy()
         serverTimeDisplayLabel = nil
-        print("serverTimeDisplayLabel supprimé lors de la fermeture du GUI") -- Débogage
+        print("serverTimeDisplayLabel supprimé lors de la fermeture du GUI")
     end
     if serverTimeUpdateConnection then
         serverTimeUpdateConnection:Disconnect()
         serverTimeUpdateConnection = nil
     end
-    -- Réinitialiser les paramètres du joueur (vitesse, saut)
     if character and character:FindFirstChild("Humanoid") then
         local humanoid = character:FindFirstChild("Humanoid")
         humanoid.WalkSpeed = defaultWalkSpeed
         humanoid.JumpPower = defaultJumpPower
         humanoid.UseJumpPower = true
     end
-    -- Supprimer le GUI
     ScreenGui:Destroy()
 end)
 
--- Bouton Reload (en haut à droite)
 local reloadButton = Instance.new("TextButton")
 reloadButton.Size = UDim2.new(0, 30, 0, 30)
-reloadButton.Position = UDim2.new(1, -40, 0, 10) -- En haut à droite, avec un décalage de 40 pixels
-reloadButton.BackgroundColor3 = Color3.fromRGB(0, 120, 255) -- Bleu
-reloadButton.Text = "↻" -- Symbole de rechargement
-reloadButton.TextColor3 = Color3.fromRGB(255, 255, 255) -- Texte blanc
+reloadButton.Position = UDim2.new(1, -40, 0, 10)
+reloadButton.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+reloadButton.Text = "↻"
+reloadButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 reloadButton.Font = Enum.Font.GothamBold
 reloadButton.TextSize = 16
 reloadButton.BorderSizePixel = 0
@@ -450,22 +446,16 @@ reloadButtonCorner.CornerRadius = UDim.new(0, 5)
 reloadButtonCorner.Parent = reloadButton
 reloadButtonCorner.Name = "ReloadButtonCorner"
 
--- Fonction pour recharger le script
 reloadButton.MouseButton1Click:Connect(function()
-    -- Nettoyer les fonctionnalités actuelles (comme dans le système anti-doublons)
     espEnabled = false
-    if billboards then
-        for _, billboard in pairs(billboards) do
-            billboard:Destroy()
-        end
-        billboards = {}
+    for _, billboard in pairs(billboards) do
+        billboard:Destroy()
     end
-    if highlights then
-        for _, highlight in pairs(highlights) do
-            highlight:Destroy()
-        end
-        highlights = {}
+    for _, highlight in pairs(highlights) do
+        highlight:Destroy()
     end
+    billboards = {}
+    highlights = {}
     if espUpdateConnection then
         espUpdateConnection:Disconnect()
         espUpdateConnection = nil
@@ -490,9 +480,7 @@ reloadButton.MouseButton1Click:Connect(function()
         humanoid.JumpPower = defaultJumpPower
         humanoid.UseJumpPower = true
     end
-    -- Supprimer le GUI actuel
     ScreenGui:Destroy()
-    -- Recharger le script
     local success, errorMsg = pcall(function()
         loadstring(game:HttpGet("https://raw.githubusercontent.com/hohigamer/Scirpt-dex/refs/heads/main/MyScript.lua"))()
     end)
@@ -503,7 +491,6 @@ reloadButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- Activer le drag-and-drop sur le TitleLabel
 local dragging = false
 local dragInput = nil
 local dragStart = nil
@@ -540,7 +527,6 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
     end
 end)
 
--- Boutons de sélection de catégorie (ajustés pour inclure TP)
 local baseSelectButton = Instance.new("TextButton")
 baseSelectButton.Size = UDim2.new(0, 80, 0, 30)
 baseSelectButton.Position = UDim2.new(0, 15, 0, 60)
@@ -609,16 +595,16 @@ tpSelectButtonCorner.CornerRadius = UDim.new(0, 5)
 tpSelectButtonCorner.Parent = tpSelectButton
 tpSelectButtonCorner.Name = "TpSelectButtonCorner"
 
--- Frame pour la catégorie Base
+-- Définition de BaseGuiFrame (suppression des TextBox pour les coordonnées)
 local BaseGuiFrame = Instance.new("Frame")
-BaseGuiFrame.Size = UDim2.new(0, 320, 0, 300) -- Hauteur ajustée à 300
+BaseGuiFrame.Size = UDim2.new(0, 320, 0, 300)
 BaseGuiFrame.Position = UDim2.new(0, 15, 0, 100)
 BaseGuiFrame.BackgroundTransparency = 1
 BaseGuiFrame.Parent = MainFrame
 BaseGuiFrame.Name = "BaseGuiFrame"
 BaseGuiFrame.Visible = true
 
--- Boutons de la catégorie Base
+-- Bouton "Saut Infini" (inchangé)
 local infJumpButton = Instance.new("TextButton")
 infJumpButton.Size = UDim2.new(0, 250, 0, 40)
 infJumpButton.Position = UDim2.new(0, 25, 0, 20)
@@ -636,9 +622,10 @@ infJumpButtonCorner.CornerRadius = UDim.new(0, 5)
 infJumpButtonCorner.Parent = infJumpButton
 infJumpButtonCorner.Name = "InfJumpButtonCorner"
 
+-- Bouton "Téléporter" (position ajustée, plus de TextBox)
 local teleportButton = Instance.new("TextButton")
 teleportButton.Size = UDim2.new(0, 250, 0, 40)
-teleportButton.Position = UDim2.new(0, 25, 0, 70)
+teleportButton.Position = UDim2.new(0, 25, 0, 70) -- Remis à sa position initiale
 teleportButton.Text = "Téléporter"
 teleportButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 teleportButton.TextColor3 = Color3.fromRGB(255, 165, 0)
@@ -653,9 +640,10 @@ teleportButtonCorner.CornerRadius = UDim.new(0, 5)
 teleportButtonCorner.Parent = teleportButton
 teleportButtonCorner.Name = "TeleportButtonCorner"
 
+-- Bouton "NoClip" (position ajustée)
 local noClipButton = Instance.new("TextButton")
 noClipButton.Size = UDim2.new(0, 250, 0, 40)
-noClipButton.Position = UDim2.new(0, 25, 0, 120)
+noClipButton.Position = UDim2.new(0, 25, 0, 120) -- Remis à sa position initiale
 noClipButton.Text = "NoClip : OFF"
 noClipButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 noClipButton.TextColor3 = Color3.fromRGB(255, 165, 0)
@@ -670,9 +658,10 @@ noClipButtonCorner.CornerRadius = UDim.new(0, 5)
 noClipButtonCorner.Parent = noClipButton
 noClipButtonCorner.Name = "NoClipButtonCorner"
 
+-- Bouton "ESP" (position ajustée)
 local espButton = Instance.new("TextButton")
 espButton.Size = UDim2.new(0, 250, 0, 40)
-espButton.Position = UDim2.new(0, 25, 0, 170)
+espButton.Position = UDim2.new(0, 25, 0, 170) -- Remis à sa position initiale
 espButton.Text = "ESP : OFF"
 espButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 espButton.TextColor3 = Color3.fromRGB(255, 165, 0)
@@ -687,9 +676,10 @@ espButtonCorner.CornerRadius = UDim.new(0, 5)
 espButtonCorner.Parent = espButton
 espButtonCorner.Name = "EspButtonCorner"
 
+-- Bouton "Respawn" (position ajustée)
 local respawnButton = Instance.new("TextButton")
 respawnButton.Size = UDim2.new(0, 250, 0, 40)
-respawnButton.Position = UDim2.new(0, 25, 0, 220)
+respawnButton.Position = UDim2.new(0, 25, 0, 220) -- Remis à sa position initiale
 respawnButton.Text = "Respawn"
 respawnButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 respawnButton.TextColor3 = Color3.fromRGB(255, 165, 0)
@@ -704,9 +694,10 @@ respawnButtonCorner.CornerRadius = UDim.new(0, 5)
 respawnButtonCorner.Parent = respawnButton
 respawnButtonCorner.Name = "RespawnButtonCorner"
 
+-- Bouton "Charger Script" (position ajustée)
 local loadScriptButton = Instance.new("TextButton")
 loadScriptButton.Size = UDim2.new(0, 250, 0, 40)
-loadScriptButton.Position = UDim2.new(0, 25, 0, 270)
+loadScriptButton.Position = UDim2.new(0, 25, 0, 270) -- Remis à sa position initiale
 loadScriptButton.Text = "Charger Script"
 loadScriptButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 loadScriptButton.TextColor3 = Color3.fromRGB(255, 165, 0)
@@ -721,7 +712,6 @@ loadScriptButtonCorner.CornerRadius = UDim.new(0, 5)
 loadScriptButtonCorner.Parent = loadScriptButton
 loadScriptButtonCorner.Name = "LoadScriptButtonCorner"
 
--- Frame pour la catégorie Player
 local PlayerGuiFrame = Instance.new("Frame")
 PlayerGuiFrame.Size = UDim2.new(0, 320, 0, 250)
 PlayerGuiFrame.Position = UDim2.new(0, 15, 0, 100)
@@ -730,7 +720,6 @@ PlayerGuiFrame.Parent = MainFrame
 PlayerGuiFrame.Name = "PlayerGuiFrame"
 PlayerGuiFrame.Visible = false
 
--- Liste déroulante des joueurs
 local playerListFrame = Instance.new("ScrollingFrame")
 playerListFrame.Size = UDim2.new(0, 250, 0, 100)
 playerListFrame.Position = UDim2.new(0, 25, 0, 20)
@@ -750,7 +739,6 @@ playerListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 playerListLayout.Parent = playerListFrame
 playerListLayout.Name = "PlayerListLayout"
 
--- Label pour afficher le joueur sélectionné
 local selectedPlayerLabel = Instance.new("TextLabel")
 selectedPlayerLabel.Size = UDim2.new(0, 250, 0, 30)
 selectedPlayerLabel.Position = UDim2.new(0, 25, 0, 130)
@@ -762,7 +750,6 @@ selectedPlayerLabel.TextSize = 14
 selectedPlayerLabel.Parent = PlayerGuiFrame
 selectedPlayerLabel.Name = "SelectedPlayerLabel"
 
--- Bouton pour se téléporter une fois
 local tpOnceButton = Instance.new("TextButton")
 tpOnceButton.Size = UDim2.new(0, 250, 0, 40)
 tpOnceButton.Position = UDim2.new(0, 25, 0, 170)
@@ -780,7 +767,6 @@ tpOnceButtonCorner.CornerRadius = UDim.new(0, 5)
 tpOnceButtonCorner.Parent = tpOnceButton
 tpOnceButtonCorner.Name = "TpOnceButtonCorner"
 
--- Bouton pour activer/désactiver la téléportation en boucle
 local tpLoopButton = Instance.new("TextButton")
 tpLoopButton.Size = UDim2.new(0, 250, 0, 40)
 tpLoopButton.Position = UDim2.new(0, 25, 0, 220)
@@ -798,7 +784,6 @@ tpLoopButtonCorner.CornerRadius = UDim.new(0, 5)
 tpLoopButtonCorner.Parent = tpLoopButton
 tpLoopButtonCorner.Name = "TpLoopButtonCorner"
 
--- Frame pour la catégorie Settings
 local SettingsGuiFrame = Instance.new("Frame")
 SettingsGuiFrame.Size = UDim2.new(0, 320, 0, 250)
 SettingsGuiFrame.Position = UDim2.new(0, 15, 0, 100)
@@ -807,7 +792,6 @@ SettingsGuiFrame.Parent = MainFrame
 SettingsGuiFrame.Name = "SettingsGuiFrame"
 SettingsGuiFrame.Visible = false
 
--- Bouton toggle pour afficher/masquer le label ServerTime
 local serverTimeToggleButton = Instance.new("TextButton")
 serverTimeToggleButton.Size = UDim2.new(0, 250, 0, 40)
 serverTimeToggleButton.Position = UDim2.new(0, 25, 0, 185)
@@ -825,7 +809,6 @@ serverTimeToggleButtonCorner.CornerRadius = UDim.new(0, 5)
 serverTimeToggleButtonCorner.Parent = serverTimeToggleButton
 serverTimeToggleButtonCorner.Name = "ServerTimeToggleButtonCorner"
 
--- Boutons et champs de la catégorie Settings
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Size = UDim2.new(0, 100, 0, 30)
 speedLabel.Position = UDim2.new(0, 25, 0, 20)
@@ -916,16 +899,14 @@ jumpToggleButtonCorner.CornerRadius = UDim.new(0, 5)
 jumpToggleButtonCorner.Parent = jumpToggleButton
 jumpToggleButtonCorner.Name = "JumpToggleButtonCorner"
 
--- Frame pour la catégorie TP
 local TpGuiFrame = Instance.new("Frame")
-TpGuiFrame.Size = UDim2.new(0, 320, 0, 300) -- Hauteur ajustée à 300
+TpGuiFrame.Size = UDim2.new(0, 320, 0, 300)
 TpGuiFrame.Position = UDim2.new(0, 15, 0, 100)
 TpGuiFrame.BackgroundTransparency = 1
 TpGuiFrame.Parent = MainFrame
 TpGuiFrame.Name = "TpGuiFrame"
 TpGuiFrame.Visible = false
 
--- Bouton pour afficher les coordonnées du joueur dans la catégorie TP
 local showCoordsButton = Instance.new("TextButton")
 showCoordsButton.Size = UDim2.new(0, 250, 0, 40)
 showCoordsButton.Position = UDim2.new(0, 25, 0, 20)
@@ -943,7 +924,6 @@ showCoordsButtonCorner.CornerRadius = UDim.new(0, 5)
 showCoordsButtonCorner.Parent = showCoordsButton
 showCoordsButtonCorner.Name = "ShowCoordsButtonCorner"
 
--- Label pour afficher les coordonnées du joueur
 local coordsLabel = Instance.new("TextLabel")
 coordsLabel.Size = UDim2.new(0, 250, 0, 30)
 coordsLabel.Position = UDim2.new(0, 25, 0, 70)
@@ -955,10 +935,9 @@ coordsLabel.TextSize = 14
 coordsLabel.Parent = TpGuiFrame
 coordsLabel.Name = "CoordsLabel"
 
--- ScrollingFrame pour la liste des modèles dans Workspace.SafeZones
-safeZonesFrame = Instance.new("ScrollingFrame")
+local safeZonesFrame = Instance.new("ScrollingFrame")
 safeZonesFrame.Size = UDim2.new(0, 250, 0, 100)
-safeZonesFrame.Position = UDim2.new(0, 25, 0, 120) -- Ajusté selon votre disposition
+safeZonesFrame.Position = UDim2.new(0, 25, 0, 120)
 safeZonesFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 safeZonesFrame.BorderSizePixel = 1
 safeZonesFrame.BorderColor3 = Color3.fromRGB(255, 165, 0)
@@ -972,11 +951,10 @@ safeZonesFrameCorner.Name = "SafeZonesFrameCorner"
 
 local safeZonesLayout = Instance.new("UIListLayout")
 safeZonesLayout.SortOrder = Enum.SortOrder.LayoutOrder
-safeZonesLayout.Padding = UDim.new(0, 5) -- Espacement de 5 pixels entre les boutons
+safeZonesLayout.Padding = UDim.new(0, 5)
 safeZonesLayout.Parent = safeZonesFrame
 safeZonesLayout.Name = "SafeZonesLayout"
 
--- Label pour afficher le modèle sélectionné
 local selectedSafeZoneLabel = Instance.new("TextLabel")
 selectedSafeZoneLabel.Size = UDim2.new(0, 250, 0, 30)
 selectedSafeZoneLabel.Position = UDim2.new(0, 25, 0, 220)
@@ -988,11 +966,11 @@ selectedSafeZoneLabel.TextSize = 14
 selectedSafeZoneLabel.Parent = TpGuiFrame
 selectedSafeZoneLabel.Name = "SelectedSafeZoneLabel"
 
--- Bouton pour se téléporter au modèle sélectionné
+-- Définition du bouton "Téléporter Safezone" (déjà renommé dans le script précédent)
 local tpToSafeZoneButton = Instance.new("TextButton")
 tpToSafeZoneButton.Size = UDim2.new(0, 250, 0, 40)
 tpToSafeZoneButton.Position = UDim2.new(0, 25, 0, 260)
-tpToSafeZoneButton.Text = "Téléporter au modèle"
+tpToSafeZoneButton.Text = "Téléporter Safezone"
 tpToSafeZoneButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 tpToSafeZoneButton.TextColor3 = Color3.fromRGB(255, 165, 0)
 tpToSafeZoneButton.Font = Enum.Font.Gotham
@@ -1006,10 +984,10 @@ tpToSafeZoneButtonCorner.CornerRadius = UDim.new(0, 5)
 tpToSafeZoneButtonCorner.Parent = tpToSafeZoneButton
 tpToSafeZoneButtonCorner.Name = "TpToSafeZoneButtonCorner"
 
--- Bouton toggle pour activer/désactiver la détection de Marco
+-- Bouton "Détection Marco" (inchangé, mais la logique sera modifiée)
 local marcoTpToggleButton = Instance.new("TextButton")
 marcoTpToggleButton.Size = UDim2.new(0, 250, 0, 40)
-marcoTpToggleButton.Position = UDim2.new(0, 25, 0, 335)
+marcoTpToggleButton.Position = UDim2.new(0, 25, 0, 310)
 marcoTpToggleButton.Text = "Détection Marco : OFF"
 marcoTpToggleButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 marcoTpToggleButton.TextColor3 = Color3.fromRGB(255, 165, 0)
@@ -1024,56 +1002,191 @@ marcoTpToggleButtonCorner.CornerRadius = UDim.new(0, 5)
 marcoTpToggleButtonCorner.Parent = marcoTpToggleButton
 marcoTpToggleButtonCorner.Name = "MarcoTpToggleButtonCorner"
 
--- S'assurer que player.PlayerGui.UI existe
+-- Label pour afficher l'état de la détection de Marco (inchangé)
+local marcoStateLabel = Instance.new("TextLabel")
+marcoStateLabel.Size = UDim2.new(0, 250, 0, 30)
+marcoStateLabel.Position = UDim2.new(0, 25, 0, 355)
+marcoStateLabel.Text = "Marco détecté : Non"
+marcoStateLabel.BackgroundTransparency = 1
+marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+marcoStateLabel.Font = Enum.Font.Gotham
+marcoStateLabel.TextSize = 14
+marcoStateLabel.Parent = TpGuiFrame
+marcoStateLabel.Name = "MarcoStateLabel"
+
 local uiGui = player.PlayerGui:FindFirstChild("UI")
 if not uiGui then
     uiGui = Instance.new("ScreenGui")
     uiGui.Name = "UI"
     uiGui.Parent = player.PlayerGui
     uiGui.IgnoreGuiInset = true
-    print("ScreenGui UI créé dans PlayerGui") -- Débogage
+    print("ScreenGui UI créé dans PlayerGui")
 else
-    print("ScreenGui UI déjà existant dans PlayerGui") -- Débogage
+    print("ScreenGui UI déjà existant dans PlayerGui")
 end
 
--- Vérifier et supprimer un éventuel doublon de serverTimeDisplayLabel
 local existingServerTimeLabel = uiGui:FindFirstChild("ServerTimeDisplayLabel")
 if existingServerTimeLabel then
     existingServerTimeLabel:Destroy()
-    print("Doublon de serverTimeDisplayLabel détecté et supprimé") -- Débogage
+    print("Doublon de serverTimeDisplayLabel détecté et supprimé")
 end
 
--- Label pour afficher ServerTime en haut de l'écran
 local serverTimeDisplayLabel = Instance.new("TextLabel")
-serverTimeDisplayLabel.Size = UDim2.new(0, 400, 0, 70) -- Taille augmentée (voir Étape 2)
-serverTimeDisplayLabel.Position = UDim2.new(0.5, -200, 0, 10) -- Ajusté pour centrer la nouvelle largeur
+serverTimeDisplayLabel.Size = UDim2.new(0, 400, 0, 70)
+serverTimeDisplayLabel.Position = UDim2.new(0.5, -200, 0, 10)
 serverTimeDisplayLabel.Text = "ServerTime : Non chargé"
-serverTimeDisplayLabel.BackgroundTransparency = 1 -- Fond transparent
-serverTimeDisplayLabel.BorderSizePixel = 0 -- Pas de contour autour du fond
-serverTimeDisplayLabel.TextColor3 = Color3.fromRGB(255, 0, 0) -- Texte rouge
-serverTimeDisplayLabel.Font = Enum.Font.GothamBold -- Police en gras
-serverTimeDisplayLabel.TextSize = 28 -- Taille du texte augmentée (voir Étape 2)
-serverTimeDisplayLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0) -- Contour noir autour du texte
-serverTimeDisplayLabel.TextStrokeTransparency = 0 -- Contour visible
+serverTimeDisplayLabel.BackgroundTransparency = 1
+serverTimeDisplayLabel.BorderSizePixel = 0
+serverTimeDisplayLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+serverTimeDisplayLabel.Font = Enum.Font.GothamBold
+serverTimeDisplayLabel.TextSize = 28
+serverTimeDisplayLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+serverTimeDisplayLabel.TextStrokeTransparency = 0
 serverTimeDisplayLabel.Visible = false
-serverTimeDisplayLabel.Parent = uiGui -- Placer dans player.PlayerGui.UI
+serverTimeDisplayLabel.Parent = uiGui
 serverTimeDisplayLabel.Name = "ServerTimeDisplayLabel"
-print("serverTimeDisplayLabel créé et ajouté à player.PlayerGui.UI") -- Débogage
+print("serverTimeDisplayLabel créé et ajouté à player.PlayerGui.UI")
 
--- Fonction pour mettre à jour la liste des joueurs (utilisée par les catégories Player et TP)
+local function updateESP()
+    if not espEnabled then
+        for _, billboard in pairs(billboards) do
+            billboard:Destroy()
+        end
+        for _, highlight in pairs(highlights) do
+            highlight:Destroy()
+        end
+        billboards = {}
+        highlights = {}
+        return
+    end
+
+    for _, targetPlayer in pairs(Players:GetPlayers()) do
+        if targetPlayer == player then continue end
+
+        local targetCharacter = targetPlayer.Character
+        if targetCharacter and targetCharacter:FindFirstChild("Head") and targetCharacter:FindFirstChild("Humanoid") then
+            local targetHumanoid = targetCharacter.Humanoid
+
+            local billboard = billboards[targetPlayer]
+            if not billboard then
+                billboard = Instance.new("BillboardGui")
+                billboard.Name = "ESPBillboard"
+                billboard.Size = UDim2.new(0, 100, 0, 75)
+                billboard.StudsOffset = Vector3.new(0, 3, 0)
+                billboard.AlwaysOnTop = true
+                billboard.Parent = targetCharacter.Head
+                billboards[targetPlayer] = billboard
+
+                local nameLabel = Instance.new("TextLabel")
+                nameLabel.Name = "NameLabel"
+                nameLabel.Size = UDim2.new(1, 0, 0.33, 0)
+                nameLabel.Position = UDim2.new(0, 0, 0, 0)
+                nameLabel.BackgroundTransparency = 1
+                nameLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+                nameLabel.Font = Enum.Font.GothamBold
+                nameLabel.TextSize = 12
+                nameLabel.Parent = billboard
+
+                local hpLabel = Instance.new("TextLabel")
+                hpLabel.Name = "HPLabel"
+                hpLabel.Size = UDim2.new(1, 0, 0.33, 0)
+                hpLabel.Position = UDim2.new(0, 0, 0.33, 0)
+                hpLabel.BackgroundTransparency = 1
+                hpLabel.TextColor3 = Color3.fromRGB(0, 100, 0)
+                hpLabel.Font = Enum.Font.GothamBold
+                hpLabel.TextSize = 12
+                hpLabel.Parent = billboard
+
+                local fruitLabel = Instance.new("TextLabel")
+                fruitLabel.Name = "FruitLabel"
+                fruitLabel.Size = UDim2.new(1, 0, 0.33, 0)
+                fruitLabel.Position = UDim2.new(0, 0, 0.66, 0)
+                fruitLabel.BackgroundTransparency = 1
+                fruitLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+                fruitLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                fruitLabel.TextStrokeTransparency = 0.5
+                fruitLabel.Font = Enum.Font.GothamBold
+                fruitLabel.TextSize = 12
+                fruitLabel.Parent = billboard
+            end
+
+            local highlight = highlights[targetPlayer]
+            if not highlight then
+                highlight = Instance.new("Highlight")
+                highlight.Name = "ESPGlow"
+                highlight.FillColor = Color3.fromRGB(0, 255, 0)
+                highlight.OutlineColor = Color3.fromRGB(255, 165, 0)
+                highlight.FillTransparency = 0.5
+                highlight.OutlineTransparency = 0.3
+                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                highlight.Parent = targetCharacter
+                highlights[targetPlayer] = highlight
+            end
+
+            local nameLabel = billboard:FindFirstChild("NameLabel")
+            local hpLabel = billboard:FindFirstChild("HPLabel")
+            local fruitLabel = billboard:FindFirstChild("FruitLabel")
+            if nameLabel and hpLabel and fruitLabel then
+                nameLabel.Text = targetPlayer.Name
+                hpLabel.Text = "HP: " .. math.floor(targetHumanoid.Health) .. "/" .. math.floor(targetHumanoid.MaxHealth)
+
+                local cachedFruit = fruitCache[targetPlayer] or {fruit = "Inconnu", attacks = {"Erreur : Non détecté"}}
+                if cachedFruit.fruit ~= "Inconnu" then
+                    fruitLabel.Text = "Fruit: " .. cachedFruit.fruit
+                else
+                    fruitLabel.Text = "Attaques: " .. table.concat(cachedFruit.attacks, ", ")
+                end
+            end
+        else
+            if billboards[targetPlayer] then
+                billboards[targetPlayer]:Destroy()
+                billboards[targetPlayer] = nil
+            end
+            if highlights[targetPlayer] then
+                highlights[targetPlayer]:Destroy()
+                highlights[targetPlayer] = nil
+            end
+        end
+    end
+end
+
+espButton.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    espButton.Text = "ESP : " .. (espEnabled and "ON" or "OFF")
+    espButton.TextColor3 = espEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
+
+    if not espEnabled then
+        for _, billboard in pairs(billboards) do
+            billboard:Destroy()
+        end
+        for _, highlight in pairs(highlights) do
+            highlight:Destroy()
+        end
+        billboards = {}
+        highlights = {}
+        if espUpdateConnection then
+            espUpdateConnection:Disconnect()
+            espUpdateConnection = nil
+        end
+    else
+        espUpdateConnection = RunService.Heartbeat:Connect(function()
+            if tick() % 0.5 < 0.016 then
+                updateESP()
+            end
+        end)
+    end
+end)
+
 local function updatePlayerList()
-    -- Nettoyer la liste actuelle pour la catégorie Player
     for _, child in pairs(playerListFrame:GetChildren()) do
         if child:IsA("TextButton") then
             child:Destroy()
         end
     end
 
-    -- Ajouter les joueurs à la liste pour les deux catégories
     local index = 0
     for _, targetPlayer in pairs(Players:GetPlayers()) do
         if targetPlayer ~= player then
-            -- Liste pour la catégorie Player
             local playerButton = Instance.new("TextButton")
             playerButton.Size = UDim2.new(0, 230, 0, 30)
             playerButton.Position = UDim2.new(0, 5, 0, index * 35)
@@ -1098,54 +1211,13 @@ local function updatePlayerList()
         end
     end
 
-    -- Ajuster la taille des ScrollingFrames
     playerListFrame.CanvasSize = UDim2.new(0, 0, 0, index * 35)
 end
 
--- Fonction pour mettre à jour la liste des modèles dans Workspace.SafeZones
-local function updateSafeZonesList()
-    -- Vider la liste actuelle
-    for _, child in ipairs(safeZonesFrame:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
-
-    -- Ajouter les modèles de Workspace.SafeZones
-    local safeZonesFolder = game.Workspace:FindFirstChild("SafeZones")
-    if safeZonesFolder then
-        for _, zone in ipairs(safeZonesFolder:GetChildren()) do
-            local button = Instance.new("TextButton")
-            button.Size = UDim2.new(0, 200, 0, 30)
-            button.Text = zone.Name
-            button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-            button.TextColor3 = Color3.fromRGB(255, 255, 255)
-            button.Font = Enum.Font.Gotham
-            button.TextSize = 14
-            button.Parent = safeZonesFrame
-            button.Name = zone.Name
-
-            button.MouseButton1Click:Connect(function()
-                selectedSafeZone = zone
-                selectedSafeZoneLabel.Text = "Modèle sélectionné : " .. zone.Name
-            end)
-        end
-    end
-end
-
--- S'assurer que Workspace.SafeZones existe
-local safeZonesFolder = game.Workspace:FindFirstChild("SafeZones")
-if not safeZonesFolder then
-    safeZonesFolder = Instance.new("Folder")
-    safeZonesFolder.Name = "SafeZones"
-    safeZonesFolder.Parent = game.Workspace
-    print("Dossier SafeZones créé dans Workspace") -- Débogage
-end
-
--- Fonction pour ajouter un modèle à la liste
+-- Logique pour ajouter une SafeZone à la liste (corrigée pour s'assurer que selectedSafeZone est bien défini)
 local function addSafeZoneToList(zone)
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, -10, 0, 30) -- Largeur ajustée pour remplir le ScrollingFrame (moins 10 pixels pour la barre de défilement)
+    button.Size = UDim2.new(1, -10, 0, 30)
     button.Text = zone.Name
     button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1154,17 +1226,15 @@ local function addSafeZoneToList(zone)
     button.Parent = safeZonesFrame
     button.Name = zone.Name
 
-    -- Ajouter un événement pour sélectionner ce modèle
     button.MouseButton1Click:Connect(function()
         selectedSafeZone = zone
         selectedSafeZoneLabel.Text = "Modèle sélectionné : " .. zone.Name
-        print("Modèle sélectionné : " .. zone.Name) -- Débogage
+        print("Modèle sélectionné : " .. zone.Name .. " (CFrame : " .. tostring(zone.CFrame)) -- Débogage
     end)
 
-    print("Modèle ajouté à la liste : " .. zone.Name) -- Débogage
+    print("Modèle ajouté à la liste : " .. zone.Name)
 end
 
--- Fonction pour supprimer un modèle de la liste
 local function removeSafeZoneFromList(zone)
     local button = safeZonesFrame:FindFirstChild(zone.Name)
     if button then
@@ -1173,25 +1243,38 @@ local function removeSafeZoneFromList(zone)
             selectedSafeZone = nil
             selectedSafeZoneLabel.Text = "Modèle sélectionné : Aucun"
         end
-        print("Modèle supprimé de la liste : " .. zone.Name) -- Débogage
+        print("Modèle supprimé de la liste : " .. zone.Name)
     end
 end
 
--- Initialiser la liste avec les modèles actuels
+local safeZonesFolder = game.Workspace:FindFirstChild("SafeZones")
+if not safeZonesFolder then
+    safeZonesFolder = Instance.new("Folder")
+    safeZonesFolder.Name = "SafeZones"
+    safeZonesFolder.Parent = game.Workspace
+    print("Dossier SafeZones créé dans Workspace")
+end
+
 for _, zone in ipairs(safeZonesFolder:GetChildren()) do
     addSafeZoneToList(zone)
 end
 
--- Écouter les événements pour ajouter/supprimer des modèles immédiatement
 safeZonesFolder.ChildAdded:Connect(addSafeZoneToList)
 safeZonesFolder.ChildRemoved:Connect(removeSafeZoneFromList)
 
--- Mettre à jour la liste des joueurs au démarrage et à chaque changement
 updatePlayerList()
 Players.PlayerAdded:Connect(updatePlayerList)
 Players.PlayerRemoving:Connect(function(targetPlayer)
     updatePlayerList()
-    updateSafeZonesList()
+    fruitCache[targetPlayer] = nil
+    if billboards[targetPlayer] then
+        billboards[targetPlayer]:Destroy()
+        billboards[targetPlayer] = nil
+    end
+    if highlights[targetPlayer] then
+        highlights[targetPlayer]:Destroy()
+        highlights[targetPlayer] = nil
+    end
     if selectedPlayer == targetPlayer then
         selectedPlayer = nil
         selectedPlayerLabel.Text = "Joueur sélectionné : Aucun"
@@ -1207,14 +1290,6 @@ Players.PlayerRemoving:Connect(function(targetPlayer)
     end
 end)
 
--- Mettre à jour la liste des modèles lorsque SafeZones change
-local safeZonesFolder = game.Workspace:FindFirstChild("SafeZones")
-if safeZonesFolder then
-    safeZonesFolder.ChildAdded:Connect(updateSafeZonesList)
-    safeZonesFolder.ChildRemoved:Connect(updateSafeZonesList)
-end
-
--- Connexion des boutons de catégorie
 baseSelectButton.MouseButton1Click:Connect(function()
     BaseGuiFrame.Visible = true
     PlayerGuiFrame.Visible = false
@@ -1243,7 +1318,6 @@ tpSelectButton.MouseButton1Click:Connect(function()
     TpGuiFrame.Visible = true
 end)
 
--- Fonction pour toggle la vitesse
 local function toggleSpeed()
     speedEnabled = not speedEnabled
     if humanoid then
@@ -1253,7 +1327,6 @@ local function toggleSpeed()
             customSpeedValue = tonumber(speedTextBox.Text) or defaultWalkSpeed
             humanoid.WalkSpeed = customSpeedValue
             print("Vitesse définie à : " .. customSpeedValue)
-            -- Lancer la boucle pour forcer la vitesse en continu
             if speedLoopConnection then
                 speedLoopConnection:Disconnect()
             end
@@ -1265,7 +1338,6 @@ local function toggleSpeed()
         else
             speedToggleButton.Text = "Activer Vitesse"
             speedToggleButton.TextColor3 = Color3.fromRGB(255, 165, 0)
-            -- Arrêter la boucle de vitesse personnalisée
             if speedLoopConnection then
                 speedLoopConnection:Disconnect()
                 speedLoopConnection = nil
@@ -1282,7 +1354,6 @@ local function toggleSpeed()
     end
 end
 
--- Fonction pour toggle la puissance de saut
 local function toggleJump()
     jumpEnabled = not jumpEnabled
     if humanoid then
@@ -1293,7 +1364,6 @@ local function toggleJump()
             humanoid.JumpPower = jumpValue
             humanoid.UseJumpPower = true
             print("Puissance de saut définie à : " .. jumpValue)
-            -- Lancer la boucle pour forcer la puissance de saut en continu
             if jumpLoopConnection then
                 jumpLoopConnection:Disconnect()
             end
@@ -1306,14 +1376,13 @@ local function toggleJump()
         else
             jumpToggleButton.Text = "Activer Saut"
             jumpToggleButton.TextColor3 = Color3.fromRGB(255, 165, 0)
-            humanoid.JumpPower = defaultJumpPower
-            humanoid.UseJumpPower = true
-            print("Puissance de saut réinitialisée à : " .. defaultJumpPower)
-            -- Arrêter la boucle
             if jumpLoopConnection then
                 jumpLoopConnection:Disconnect()
                 jumpLoopConnection = nil
             end
+            humanoid.JumpPower = defaultJumpPower
+            humanoid.UseJumpPower = true
+            print("Puissance de saut réinitialisée à : " .. defaultJumpPower)
         end
     else
         print("Erreur : Humanoid non disponible")
@@ -1323,61 +1392,63 @@ local function toggleJump()
     end
 end
 
--- Mettre à jour les valeurs quand le texte change
-speedTextBox.FocusLost:Connect(function(enterPressed)
-    customSpeedValue = tonumber(speedTextBox.Text) or defaultWalkSpeed
-    if speedEnabled and humanoid then
-        humanoid.WalkSpeed = customSpeedValue
-        print("Vitesse mise à jour à : " .. customSpeedValue)
-        -- Mettre à jour la boucle avec la nouvelle valeur
-        if speedLoopConnection then
-            speedLoopConnection:Disconnect()
-        end
-        speedLoopConnection = game:GetService("RunService").Heartbeat:Connect(function()
-            if speedEnabled and humanoid then
-                humanoid.WalkSpeed = customSpeedValue
-            end
-        end)
-    end
-end)
-
 speedToggleButton.MouseButton1Click:Connect(toggleSpeed)
-
 jumpToggleButton.MouseButton1Click:Connect(toggleJump)
 
--- Saut Infini
+-- Suite du script à partir de la gestion du bouton "Saut Infini"
+
 local infJumpEnabled = false
 infJumpButton.MouseButton1Click:Connect(function()
     infJumpEnabled = not infJumpEnabled
     infJumpButton.Text = "Saut Infini : " .. (infJumpEnabled and "ON" or "OFF")
     infJumpButton.TextColor3 = infJumpEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
-end)
 
-game:GetService("UserInputService").JumpRequest:Connect(function()
-    if infJumpEnabled and humanoid then
-        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    if infJumpEnabled then
+        local userInputService = game:GetService("UserInputService")
+        userInputService.JumpRequest:Connect(function()
+            if infJumpEnabled and character and humanoid then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
     end
 end)
 
--- Téléportation aux coordonnées précises (-304.0, 698.4, -1241.2)
+-- Logique pour le bouton "Téléporter" (modifiée pour téléporter directement aux coordonnées fixes)
 teleportButton.MouseButton1Click:Connect(function()
-    if character and character:FindFirstChild("HumanoidRootPart") then
-        character.HumanoidRootPart.CFrame = CFrame.new(-304.0, 698.4, -1241.2)
-        print("Téléporté aux coordonnées : -304.0, 698.4, -1241.2")
-    else
-        print("Erreur : HumanoidRootPart non trouvé")
+    if not character then
+        print("Erreur : Personnage non disponible")
+        return
     end
+    if not character:FindFirstChild("HumanoidRootPart") then
+        print("Erreur : HumanoidRootPart non trouvé pour le joueur")
+        return
+    end
+
+    -- Coordonnées fixes demandées
+    local x = -304.0
+    local y = 698.4
+    local z = -1241.2
+
+    -- Téléporter le joueur aux coordonnées fixes
+    local targetCFrame = CFrame.new(x, y, z)
+    character.HumanoidRootPart.CFrame = targetCFrame
+    print("Téléportation effectuée aux coordonnées fixes : " .. x .. ", " .. y .. ", " .. z)
 end)
 
--- NoClip
 local noClipEnabled = false
 noClipButton.MouseButton1Click:Connect(function()
     noClipEnabled = not noClipEnabled
     noClipButton.Text = "NoClip : " .. (noClipEnabled and "ON" or "OFF")
     noClipButton.TextColor3 = noClipEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
+
     if noClipEnabled then
-        RunService.Stepped:Connect(function()
-            if noClipEnabled and character then
+        local noClipConnection
+        noClipConnection = RunService.Stepped:Connect(function()
+            if not noClipEnabled then
+                noClipConnection:Disconnect()
+                return
+            end
+            if character then
                 for _, part in pairs(character:GetDescendants()) do
                     if part:IsA("BasePart") then
                         part.CanCollide = false
@@ -1385,174 +1456,26 @@ noClipButton.MouseButton1Click:Connect(function()
                 end
             end
         end)
-    end
-end)
-
--- ESP avec détection des fruits, points de vie, et glow
-espButton.MouseButton1Click:Connect(function()
-    espEnabled = not espEnabled
-    espButton.Text = "ESP : " .. (espEnabled and "ON" or "OFF")
-    espButton.TextColor3 = espEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
-
-    if not espEnabled then
-        for _, billboard in pairs(billboards) do
-            billboard:Destroy()
-        end
-        for _, highlight in pairs(highlights) do
-            highlight:Destroy()
-        end
-        billboards = {}
-        highlights = {}
-        if espUpdateConnection then
-            espUpdateConnection:Disconnect()
-            espUpdateConnection = nil
-        end
     else
-        -- Relancer la boucle si l'ESP est activé
-        espUpdateConnection = RunService.Heartbeat:Connect(function()
-            updateESP()
-        end)
-    end
-end)
-
-local function updateESP()
-    if not espEnabled then
-        -- Nettoyer tous les billboards et highlights si l'ESP est désactivé
-        for _, billboard in pairs(billboards) do
-            billboard:Destroy()
-        end
-        for _, highlight in pairs(highlights) do
-            highlight:Destroy()
-        end
-        billboards = {}
-        highlights = {}
-        return
-    end
-
-    for _, targetPlayer in pairs(Players:GetPlayers()) do
-        if targetPlayer == player then continue end -- Ignorer le joueur local
-
-        local targetCharacter = targetPlayer.Character
-        if targetCharacter and targetCharacter:FindFirstChild("Head") and targetCharacter:FindFirstChild("Humanoid") then
-            local targetHumanoid = targetCharacter.Humanoid
-
-            -- Vérifier si un billboard existe déjà
-            local existingBillboard = billboards[targetPlayer]
-            if not existingBillboard then
-                -- Créer un nouveau billboard
-                local billboard = Instance.new("BillboardGui")
-                billboard.Name = "ESPBillboard"
-                billboard.Size = UDim2.new(0, 100, 0, 75) -- Ajusté pour 3 lignes (nom, HP, fruit)
-                billboard.StudsOffset = Vector3.new(0, 3, 0)
-                billboard.AlwaysOnTop = true
-                billboard.Parent = targetCharacter.Head
-                billboards[targetPlayer] = billboard
-
-                local nameLabel = Instance.new("TextLabel")
-                nameLabel.Name = "NameLabel"
-                nameLabel.Size = UDim2.new(1, 0, 0.33, 0)
-                nameLabel.Position = UDim2.new(0, 0, 0, 0)
-                nameLabel.BackgroundTransparency = 1
-                nameLabel.TextColor3 = Color3.fromRGB(255, 0, 0) -- Rouge pour le pseudo
-                nameLabel.Font = Enum.Font.GothamBold -- Texte en gras
-                nameLabel.TextSize = 14
-                nameLabel.Parent = billboard
-
-                local hpLabel = Instance.new("TextLabel")
-                hpLabel.Name = "HPLabel"
-                hpLabel.Size = UDim2.new(1, 0, 0.33, 0)
-                hpLabel.Position = UDim2.new(0, 0, 0.33, 0)
-                hpLabel.BackgroundTransparency = 1
-                hpLabel.TextColor3 = Color3.fromRGB(0, 100, 0) -- Vert foncé pour la vie
-                hpLabel.Font = Enum.Font.GothamBold -- Texte en gras
-                hpLabel.TextSize = 14
-                hpLabel.Parent = billboard
-
-                local fruitLabel = Instance.new("TextLabel")
-                fruitLabel.Name = "FruitLabel"
-                fruitLabel.Size = UDim2.new(1, 0, 0.33, 0)
-                fruitLabel.Position = UDim2.new(0, 0, 0.66, 0)
-                fruitLabel.BackgroundTransparency = 1
-                fruitLabel.TextColor3 = Color3.fromRGB(255, 165, 0) -- Orange pour le fruit
-                fruitLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0) -- Contour noir
-                fruitLabel.TextStrokeTransparency = 0 -- Contour complètement visible (épais par défaut)
-                fruitLabel.Font = Enum.Font.GothamBold -- Texte en gras
-                fruitLabel.TextSize = 14
-                fruitLabel.Parent = billboard
-            end
-
-            -- Vérifier si un highlight existe déjà
-            local existingHighlight = highlights[targetPlayer]
-            if not existingHighlight then
-                local highlight = Instance.new("Highlight")
-                highlight.Name = "ESPGlow"
-                highlight.FillColor = Color3.fromRGB(0, 255, 0) -- Vert fluo pour le remplissage
-                highlight.OutlineColor = Color3.fromRGB(255, 165, 0) -- Orange pour l'outline
-                highlight.FillTransparency = 0.2 -- Rendre le remplissage encore plus opaque pour un effet plus "gros"
-                highlight.OutlineTransparency = 0 -- Outline complètement visible
-                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Toujours visible, même à travers les murs
-                highlight.Parent = targetCharacter
-                highlights[targetPlayer] = highlight
-            end
-
-            -- Mettre à jour le billboard
-            local billboard = billboards[targetPlayer]
-            if billboard then
-                local nameLabel = billboard:FindFirstChild("NameLabel")
-                local hpLabel = billboard:FindFirstChild("HPLabel")
-                local fruitLabel = billboard:FindFirstChild("FruitLabel")
-                if nameLabel and hpLabel and fruitLabel then
-                    nameLabel.Text = targetPlayer.Name
-                    hpLabel.Text = "HP: " .. math.floor(targetHumanoid.Health) .. "/" .. math.floor(targetHumanoid.MaxHealth)
-                    local fruit, matchedAttacks = detectFruit(targetPlayer)
-                    if fruit ~= "Inconnu" then
-                        fruitLabel.Text = "Fruit: " .. fruit
-                    else
-                        fruitLabel.Text = "Attaques: " .. table.concat(matchedAttacks, ", ")
-                    end
+        if character then
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
                 end
             end
-        else
-            -- Supprimer le billboard et le highlight si le personnage n'existe plus
-            if billboards[targetPlayer] then
-                billboards[targetPlayer]:Destroy()
-                billboards[targetPlayer] = nil
-            end
-            if highlights[targetPlayer] then
-                highlights[targetPlayer]:Destroy()
-                highlights[targetPlayer] = nil
-            end
         end
     end
-end
-
--- Mettre à jour l'ESP toutes les 5 secondes
-espUpdateConnection = RunService.Heartbeat:Connect(function()
-    updateESP()
 end)
 
--- Nettoyer les billboards et highlights quand un joueur quitte
-Players.PlayerRemoving:Connect(function(targetPlayer)
-    if billboards[targetPlayer] then
-        billboards[targetPlayer]:Destroy()
-        billboards[targetPlayer] = nil
-    end
-    if highlights[targetPlayer] then
-        highlights[targetPlayer]:Destroy()
-        highlights[targetPlayer] = nil
-    end
-end)
-
--- Respawn
 respawnButton.MouseButton1Click:Connect(function()
     if character and humanoid then
         humanoid.WalkSpeed = 0
         humanoid.JumpPower = 0
         humanoid:ChangeState(Enum.HumanoidStateType.Dead)
+        print("Respawn déclenché")
     end
 end)
 
--- Charger Script
 loadScriptButton.MouseButton1Click:Connect(function()
     local success, errorMsg = pcall(function()
         loadstring(game:HttpGet("https://raw.githubusercontent.com/hohigamer/Scirpt-dex/refs/heads/main/MyScript.lua"))()
@@ -1564,42 +1487,29 @@ loadScriptButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- Téléportation une fois au joueur sélectionné (catégorie Player)
 tpOnceButton.MouseButton1Click:Connect(function()
     if selectedPlayer and selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("HumanoidRootPart") and character and character:FindFirstChild("HumanoidRootPart") then
         character.HumanoidRootPart.CFrame = selectedPlayer.Character.HumanoidRootPart.CFrame
-        print("Téléporté à " .. selectedPlayer.Name)
+        print("Téléportation effectuée vers : " .. selectedPlayer.Name)
     else
-        print("Erreur : Joueur sélectionné ou HumanoidRootPart non trouvé")
+        print("Erreur : Aucun joueur sélectionné ou personnage non disponible")
     end
 end)
 
--- Téléportation en boucle au joueur sélectionné (catégorie Player)
 tpLoopButton.MouseButton1Click:Connect(function()
     tpLoopEnabled = not tpLoopEnabled
     tpLoopButton.Text = "Téléportation en boucle : " .. (tpLoopEnabled and "ON" or "OFF")
     tpLoopButton.TextColor3 = tpLoopEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
-    tpLoopButtonTpTab.Text = "Téléportation en boucle : " .. (tpLoopEnabled and "ON" or "OFF")
-    tpLoopButtonTpTab.TextColor3 = tpLoopEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
 
     if tpLoopEnabled then
-        if selectedPlayer and selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            if tpLoopConnection then
-                tpLoopConnection:Disconnect()
-            end
-            tpLoopConnection = RunService.Heartbeat:Connect(function()
-                if tpLoopEnabled and character and character:FindFirstChild("HumanoidRootPart") and selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                    character.HumanoidRootPart.CFrame = selectedPlayer.Character.HumanoidRootPart.CFrame
-                end
-            end)
-        else
-            print("Erreur : Joueur sélectionné ou HumanoidRootPart non trouvé")
-            tpLoopEnabled = false
-            tpLoopButton.Text = "Téléportation en boucle : OFF"
-            tpLoopButton.TextColor3 = Color3.fromRGB(255, 165, 0)
-            tpLoopButtonTpTab.Text = "Téléportation en boucle : OFF"
-            tpLoopButtonTpTab.TextColor3 = Color3.fromRGB(255, 165, 0)
+        if tpLoopConnection then
+            tpLoopConnection:Disconnect()
         end
+        tpLoopConnection = RunService.Heartbeat:Connect(function()
+            if tpLoopEnabled and character and character:FindFirstChild("HumanoidRootPart") and selectedPlayer and selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                character.HumanoidRootPart.CFrame = selectedPlayer.Character.HumanoidRootPart.CFrame
+            end
+        end)
     else
         if tpLoopConnection then
             tpLoopConnection:Disconnect()
@@ -1608,158 +1518,25 @@ tpLoopButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- Mettre à jour le label avec les coordonnées du joueur lorsqu'on clique sur le bouton
-showCoordsButton.MouseButton1Click:Connect(function()
-    if character and character:FindFirstChild("HumanoidRootPart") then
-        local position = character.HumanoidRootPart.Position
-        coordsLabel.Text = "Coordonnées : X = " .. math.floor(position.X) .. ", Y = " .. math.floor(position.Y) .. ", Z = " .. math.floor(position.Z)
-    else
-        coordsLabel.Text = "Coordonnées : Erreur (HumanoidRootPart non trouvé)"
-    end
-end)
-
--- Téléporter au modèle sélectionné
-tpToSafeZoneButton.MouseButton1Click:Connect(function()
-    if not selectedSafeZone then
-        selectedSafeZoneLabel.Text = "Modèle sélectionné : Aucun (sélectionnez un modèle)"
-        return
-    end
-
-    if character and character:FindFirstChild("HumanoidRootPart") then
-        -- Vérifier si le modèle a une PrimaryPart
-        local targetPosition
-        if selectedSafeZone.PrimaryPart then
-            targetPosition = selectedSafeZone.PrimaryPart.Position
-        else
-            -- Si pas de PrimaryPart, chercher une BasePart dans le modèle
-            local basePart = selectedSafeZone:FindFirstChildWhichIsA("BasePart")
-            if basePart then
-                targetPosition = basePart.Position
-            else
-                selectedSafeZoneLabel.Text = "Modèle sélectionné : " .. selectedSafeZone.Name .. " (aucune position valide)"
-                return
-            end
-        end
-
-        -- Téléporter le joueur à la position du modèle
-        character.HumanoidRootPart.CFrame = CFrame.new(targetPosition + Vector3.new(0, 5, 0)) -- Ajouter 5 unités en Y pour éviter d'être dans le sol
-        print("Téléporté à " .. selectedSafeZone.Name .. " à la position : " .. tostring(targetPosition))
-    else
-        selectedSafeZoneLabel.Text = "Modèle sélectionné : " .. selectedSafeZone.Name .. " (erreur : HumanoidRootPart non trouvé)"
-    end
-end)
-
--- Toggle pour activer/désactiver la détection de Marco
-marcoTpToggleButton.MouseButton1Click:Connect(function()
-    marcoTpEnabled = not marcoTpEnabled
-    marcoTpToggleButton.Text = "Détection Marco : " .. (marcoTpEnabled and "ON" or "OFF")
-    marcoTpToggleButton.TextColor3 = marcoTpEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
-
-    if marcoTpEnabled then
-        -- Vérifier si Workspace.Characters.NPCs existe
-        local npcsFolder = game.Workspace:FindFirstChild("Characters") and game.Workspace.Characters:FindFirstChild("NPCs")
-        if not npcsFolder then
-            marcoTpStatusLabel.Text = "État : Erreur (NPCs non trouvé)"
-            marcoTpEnabled = false
-            marcoTpToggleButton.Text = "Détection Marco : OFF"
-            marcoTpToggleButton.TextColor3 = Color3.fromRGB(255, 165, 0)
-            return
-        end
-
-        -- Vérifier si Marco est déjà présent
-        local marcoModel = npcsFolder:FindFirstChild("Marco")
-        if marcoModel then
-            -- Téléporter immédiatement si Marco est déjà là
-            if character and character:FindFirstChild("HumanoidRootPart") then
-                character.HumanoidRootPart.CFrame = CFrame.new(-810, 1101, 623)
-                marcoTpStatusLabel.Text = "État : Téléporté à Marco"
-            else
-                marcoTpStatusLabel.Text = "État : Erreur (HumanoidRootPart non trouvé)"
-            end
-            -- Désactiver le toggle après téléportation
-            marcoTpEnabled = false
-            marcoTpToggleButton.Text = "Détection Marco : OFF"
-            marcoTpToggleButton.TextColor3 = Color3.fromRGB(255, 165, 0)
-            return
-        end
-
-        -- Surveiller l'apparition de Marco
-        marcoTpStatusLabel.Text = "État : Surveillance de Marco..."
-        marcoTpConnection = npcsFolder.ChildAdded:Connect(function(child)
-            if child.Name == "Marco" and marcoTpEnabled then
-                if character and character:FindFirstChild("HumanoidRootPart") then
-                    character.HumanoidRootPart.CFrame = CFrame.new(-810, 1101, 623)
-                    marcoTpStatusLabel.Text = "État : Téléporté à Marco"
-                else
-                    marcoTpStatusLabel.Text = "État : Erreur (HumanoidRootPart non trouvé)"
-                end
-                -- Désactiver le toggle après téléportation
-                marcoTpEnabled = false
-                marcoTpToggleButton.Text = "Détection Marco : OFF"
-                marcoTpToggleButton.TextColor3 = Color3.fromRGB(255, 165, 0)
-                if marcoTpConnection then
-                    marcoTpConnection:Disconnect()
-                    marcoTpConnection = nil
-                end
-            end
-        end)
-    else
-        -- Désactiver la surveillance
-        if marcoTpConnection then
-            marcoTpConnection:Disconnect()
-            marcoTpConnection = nil
-        end
-        marcoTpStatusLabel.Text = "État : Surveillance désactivée"
-    end
-end)
-
-
--- Toggle pour afficher/masquer le label ServerTime
 serverTimeToggleButton.MouseButton1Click:Connect(function()
-    print("Bouton ServerTime cliqué") -- Débogage
     serverTimeDisplayEnabled = not serverTimeDisplayEnabled
     serverTimeToggleButton.Text = "Afficher ServerTime : " .. (serverTimeDisplayEnabled and "ON" or "OFF")
     serverTimeToggleButton.TextColor3 = serverTimeDisplayEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
-    print("serverTimeDisplayEnabled = " .. tostring(serverTimeDisplayEnabled)) -- Débogage
 
     if serverTimeDisplayEnabled then
-        -- Vérifier si serverTimeDisplayLabel existe
-        if not serverTimeDisplayLabel then
-            warn("Erreur : serverTimeDisplayLabel n'existe pas !")
-            serverTimeToggleButton.Text = "Afficher ServerTime : OFF"
-            serverTimeToggleButton.TextColor3 = Color3.fromRGB(255, 165, 0)
-            serverTimeDisplayEnabled = false
-            return
-        end
-
-        -- Vérifier si player.PlayerGui.UI.Info.ServerTime existe
-        local serverTimeLabel = player.PlayerGui:FindFirstChild("UI") and player.PlayerGui.UI:FindFirstChild("Info") and player.PlayerGui.UI.Info:FindFirstChild("ServerTime")
-        if not serverTimeLabel then
-            warn("player.PlayerGui.UI.Info.ServerTime n'existe pas !")
-            serverTimeDisplayLabel.Text = "ServerTime : Erreur (Label non trouvé)"
-            serverTimeDisplayLabel.Visible = true
-            serverTimeDisplayEnabled = false
-            serverTimeToggleButton.Text = "Afficher ServerTime : OFF"
-            serverTimeToggleButton.TextColor3 = Color3.fromRGB(255, 165, 0)
-            return
-        end
-
-        -- Afficher le label et mettre à jour son texte
-        print("Affichage de serverTimeDisplayLabel avec texte : " .. serverTimeLabel.Text) -- Débogage
-        serverTimeDisplayLabel.Text = serverTimeLabel.Text
         serverTimeDisplayLabel.Visible = true
-
-        -- Mettre à jour le texte en temps réel si ServerTime change
         if serverTimeUpdateConnection then
             serverTimeUpdateConnection:Disconnect()
         end
-        serverTimeUpdateConnection = serverTimeLabel:GetPropertyChangedSignal("Text"):Connect(function()
-            print("Mise à jour du texte de serverTimeDisplayLabel : " .. serverTimeLabel.Text) -- Débogage
-            serverTimeDisplayLabel.Text = serverTimeLabel.Text
+        serverTimeUpdateConnection = RunService.Heartbeat:Connect(function()
+            local serverTimeLabel = player.PlayerGui:FindFirstChild("UI") and player.PlayerGui.UI:FindFirstChild("Info") and player.PlayerGui.UI.Info:FindFirstChild("ServerTime")
+            if serverTimeLabel then
+                serverTimeDisplayLabel.Text = serverTimeLabel.Text
+            else
+                serverTimeDisplayLabel.Text = "ServerTime : Non disponible"
+            end
         end)
     else
-        -- Masquer le label et déconnecter la mise à jour
-        print("Masquage de serverTimeDisplayLabel") -- Débogage
         serverTimeDisplayLabel.Visible = false
         if serverTimeUpdateConnection then
             serverTimeUpdateConnection:Disconnect()
@@ -1767,3 +1544,110 @@ serverTimeToggleButton.MouseButton1Click:Connect(function()
         end
     end
 end)
+
+showCoordsButton.MouseButton1Click:Connect(function()
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local position = character.HumanoidRootPart.Position
+        coordsLabel.Text = string.format("Coordonnées : %.2f, %.2f, %.2f", position.X, position.Y, position.Z)
+    else
+        coordsLabel.Text = "Coordonnées : Non disponibles"
+    end
+end)
+
+-- Logique pour le bouton "Téléporter Safezone" (corrigée avec plus de vérifications)
+tpToSafeZoneButton.MouseButton1Click:Connect(function()
+    if not character then
+        print("Erreur : Personnage non disponible")
+        return
+    end
+    if not character:FindFirstChild("HumanoidRootPart") then
+        print("Erreur : HumanoidRootPart non trouvé pour le joueur")
+        return
+    end
+    if not selectedSafeZone then
+        print("Erreur : Aucun modèle sélectionné (selectedSafeZone est nil)")
+        return
+    end
+    if not selectedSafeZone:IsA("BasePart") and not selectedSafeZone:IsA("Model") then
+        print("Erreur : selectedSafeZone n'est pas un BasePart ou un Model")
+        return
+    end
+
+    -- Vérifier si selectedSafeZone est un Model ou un BasePart et obtenir le CFrame approprié
+    local targetCFrame
+    if selectedSafeZone:IsA("Model") then
+        local primaryPart = selectedSafeZone.PrimaryPart or selectedSafeZone:FindFirstChildWhichIsA("BasePart")
+        if primaryPart then
+            targetCFrame = primaryPart.CFrame
+        else
+            print("Erreur : Le modèle sélectionné n'a pas de PrimaryPart ou de BasePart")
+            return
+        end
+    else
+        targetCFrame = selectedSafeZone.CFrame
+    end
+
+    -- Téléporter le joueur
+    character.HumanoidRootPart.CFrame = targetCFrame
+    print("Téléportation effectuée vers : " .. selectedSafeZone.Name .. " (CFrame : " .. tostring(targetCFrame))
+end)
+
+-- Logique pour la détection de Marco (modifiée pour détecter le modèle "Marco" et téléporter aux coordonnées spécifiées)
+marcoTpToggleButton.MouseButton1Click:Connect(function()
+    marcoTpEnabled = not marcoTpEnabled
+    marcoTpToggleButton.Text = "Détection Marco : " .. (marcoTpEnabled and "ON" or "OFF")
+    marcoTpToggleButton.TextColor3 = marcoTpEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
+
+    if marcoTpEnabled then
+        if marcoTpConnection then
+            marcoTpConnection:Disconnect()
+        end
+        marcoTpConnection = RunService.Heartbeat:Connect(function()
+            if not marcoTpEnabled then return end
+
+            -- Vérifier si le dossier "Characters/NPC's" existe dans Workspace
+            local charactersFolder = game.Workspace:FindFirstChild("Characters")
+            if not charactersFolder then
+                marcoStateLabel.Text = "Marco détecté : Non (Dossier Characters non trouvé)"
+                marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+                return
+            end
+
+            local npcsFolder = charactersFolder:FindFirstChild("NPC's")
+            if not npcsFolder then
+                marcoStateLabel.Text = "Marco détecté : Non (Dossier NPC's non trouvé)"
+                marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+                return
+            end
+
+            -- Vérifier si le modèle "Marco" existe dans NPC's
+            local marcoModel = npcsFolder:FindFirstChild("Marco")
+            if marcoModel and marcoModel:IsA("Model") then
+                marcoStateLabel.Text = "Marco détecté : Oui"
+                marcoStateLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+
+                -- Vérifier que le personnage et HumanoidRootPart existent
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    -- Téléporter le joueur aux coordonnées spécifiées
+                    local targetCFrame = CFrame.new(-814, 1101.09, 623.70)
+                    character.HumanoidRootPart.CFrame = targetCFrame
+                    print("Marco détecté ! Téléportation effectuée aux coordonnées : X: -814, Y: 1101.09, Z: 623.70")
+                else
+                    print("Erreur : Personnage ou HumanoidRootPart non disponible")
+                end
+            else
+                marcoStateLabel.Text = "Marco détecté : Non"
+                marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+            end
+        end)
+    else
+        if marcoTpConnection then
+            marcoTpConnection:Disconnect()
+            marcoTpConnection = nil
+        end
+        marcoStateLabel.Text = "Marco détecté : Non"
+        marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+    end
+end)
+
+-- Fin du script
