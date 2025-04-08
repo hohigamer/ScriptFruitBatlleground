@@ -1592,7 +1592,6 @@ tpToSafeZoneButton.MouseButton1Click:Connect(function()
     print("Téléportation effectuée vers : " .. selectedSafeZone.Name .. " (CFrame : " .. tostring(targetCFrame))
 end)
 
--- Logique pour la détection de Marco (modifiée pour détecter le modèle "Marco" et téléporter aux coordonnées spécifiées)
 marcoTpToggleButton.MouseButton1Click:Connect(function()
     marcoTpEnabled = not marcoTpEnabled
     marcoTpToggleButton.Text = "Détection Marco : " .. (marcoTpEnabled and "ON" or "OFF")
@@ -1605,38 +1604,29 @@ marcoTpToggleButton.MouseButton1Click:Connect(function()
         marcoTpConnection = RunService.Heartbeat:Connect(function()
             if not marcoTpEnabled then return end
 
-            -- Vérifier si le dossier "Characters/NPC's" existe dans Workspace
-            local charactersFolder = game.Workspace:FindFirstChild("Characters")
-            if not charactersFolder then
-                marcoStateLabel.Text = "Marco détecté : Non (Dossier Characters non trouvé)"
-                marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
-                return
-            end
-
-            local npcsFolder = charactersFolder:FindFirstChild("NPC's")
-            if not npcsFolder then
-                marcoStateLabel.Text = "Marco détecté : Non (Dossier NPC's non trouvé)"
-                marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
-                return
-            end
-
-            -- Vérifier si le modèle "Marco" existe dans NPC's
-            local marcoModel = npcsFolder:FindFirstChild("Marco")
-            if marcoModel and marcoModel:IsA("Model") then
-                marcoStateLabel.Text = "Marco détecté : Oui"
-                marcoStateLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-
-                -- Vérifier que le personnage et HumanoidRootPart existent
-                if character and character:FindFirstChild("HumanoidRootPart") then
-                    -- Téléporter le joueur aux coordonnées spécifiées
-                    local targetCFrame = CFrame.new(-814, 1101.09, 623.70)
-                    character.HumanoidRootPart.CFrame = targetCFrame
-                    print("Marco détecté ! Téléportation effectuée aux coordonnées : X: -814, Y: 1101.09, Z: 623.70")
-                else
-                    print("Erreur : Personnage ou HumanoidRootPart non disponible")
+            -- Vérifier si le dossier "Marcos" existe dans Workspace
+            local marcosFolder = game.Workspace:FindFirstChild("Marcos")
+            if marcosFolder then
+                local marcoFound = false
+                for _, marco in pairs(marcosFolder:GetChildren()) do
+                    if marco:IsA("BasePart") then
+                        marcoFound = true
+                        marcoStateLabel.Text = "Marco détecté : Oui"
+                        marcoStateLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+                        -- Téléporter le joueur vers le Marco
+                        if character and character:FindFirstChild("HumanoidRootPart") then
+                            character.HumanoidRootPart.CFrame = marco.CFrame
+                            print("Téléportation vers Marco : " .. marco.Name)
+                        end
+                        break
+                    end
+                end
+                if not marcoFound then
+                    marcoStateLabel.Text = "Marco détecté : Non"
+                    marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
                 end
             else
-                marcoStateLabel.Text = "Marco détecté : Non"
+                marcoStateLabel.Text = "Marco détecté : Non (Dossier Marcos non trouvé)"
                 marcoStateLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
             end
         end)
